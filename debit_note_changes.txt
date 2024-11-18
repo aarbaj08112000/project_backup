@@ -1,0 +1,1730 @@
+changes for debit note 
+
+	- replace hole file prudent_live/js/debit_note.js =
+	- new file prudent_live/application/modules/upload_bom_items/views/debit_note_filter.php =
+	- replace hole file prudent_live/application/modules/upload_bom_items/views/debit_note.php =
+	- change route prudent_live/application/modules/upload_bom_items/config/routes.php = 
+		$route['return_memo'] ='upload_bom_items/upload_bom_items_controller/debit_note';
+
+	- add below code in prudent_live/application/modules/upload_bom_items/views/vendor_delivery_challan.php
+		<div class="col-md-3">
+                                    <div class="form-group">
+                                       <label class="">Advance Payment</label>
+                                       <div class="input-icon right">
+                                          <input type="text" class="form-control" name="total_advance_payment" value="<?php echo $total_advance_payment; ?>" placeholder="" readonly>
+                                       </div>
+                                    </div>
+                                 </div>
+
+	- change below funtions in controller 
+ 
+		public function return_memo_list_by_project_id()
+	     {
+	         $project_id = $_POST["project_id"];
+	         $po_number = $_POST["po_number"];
+	         $type = $_POST["type"] == "return_memo" ? "ReturnMemo" : "DebitNote";
+	         $data = [
+	             "po_id" => base64_encode($po_number),
+	             "project_id" => base64_encode($project_id),
+	             "type" => base64_encode($type),
+	         ];
+
+	         $html = $this->debit_note($data);
+	         echo $html;
+	         exit();
+	     }
+	     public function debit_note($post_data = [])
+	     {
+	         if (is_array($post_data) && count($post_data) > 0) {
+	             $_GET = $post_data;
+	         }
+	         $route = $this->uri->segment(1);
+	         $po_id = $_GET["po_id"];
+	         $project_id = $_GET["project_id"];
+	         $default_type = $route == "return_memo" ? "ReturnMemo" : "DebitNote";
+	         $type =
+	             isset($_GET["type"]) && $_GET["type"] != ""
+	                 ? base64_decode($_GET["type"])
+	                 : $default_type;
+	         if (isset($po_id) && !empty($po_id)) {
+	             $po_number = base64_decode($po_id);
+	         }
+	         if (isset($project_id) && !empty($project_id)) {
+	             $project_id = base64_decode($project_id);
+	         }
+
+	         $bp_code = $this->admin_model->get_bp_code($project_id);
+	         $data["bp_code"] = $bp_code;
+
+	         $data["project_id"] = $project_id;
+	         $data["po_number"] = $po_number;
+	         if (isset($po_number) && !empty($po_number)) {
+	             $return_memo_data = $this->admin_model->return_memo_data(
+	                 $po_number,
+	                 $type,
+	                 $project_id
+	             );
+	         } else {
+	             $po_number = "";
+	             $return_memo_data = $this->admin_model->return_memo_data(
+	                 "",
+	                 $type
+	             );
+	         }
+	         // pr($return_memo_data,1);
+	         $data["data"] = $return_memo_data;
+	         $data["type"] = $type == "ReturnMemo" ? "return_memo" : "debit_note";
+	         $data["po_number"] = $po_number;
+	         $data["title"] = $type == "ReturnMemo" ? "Return Memo" : "Debit Note";
+	         if (is_array($post_data) && count($post_data) > 0) {
+	             return $this->load->view("debit_note_filter", $data, true);
+	         } else {
+	             $this->load->view("debit_note", $data);
+	         }
+	     }
+	    public function approved_delivery_challan()
+	     {
+	         $loguser_id = $this->session->userdata("user_id");
+	         $logrole_id = $this->session->userdata("role_id");
+
+	         if (!empty($loguser_id) && !empty($logrole_id)) {
+	             $submenu_data = $this->common_model->selectDetailsWhr(
+	                 "tbl_submenu",
+	                 "action",
+	                 "approved_vendor_delivery_challan"
+	             );
+
+	             if (!empty($submenu_data->submenu_id)) {
+	                 $submenu_id = $submenu_data->submenu_id;
+
+	                 $check_permission = $this->admin_model->check_permission(
+	                     $submenu_id,
+	                     $logrole_id
+	                 );
+
+	                 if (!empty($check_permission)) {
+	                     $project_id = $this->input->post("project_id");
+	                     $transaction_id = $this->input->post("id");
+	                     $a_status = $this->input->post("status");
+	                     if (!empty($project_id)) {
+	                         $project_id = base64_decode($project_id);
+	                     }
+
+	                     // pr($this->input->post(),1);
+	                     $pr_data = $this->admin_model->get_vendor_dc_list_data_by_traansaction_id(
+	                         $transaction_id
+	                     );
+	                     if (!empty($pr_data)) {
+	                         $get_vdc_data = $this->admin_model->getViewBomVendorDCListRows(
+	                             $this->input->post("id"),
+	                             "pending"
+	                         );
+	                         $bad_parts_data = [];
+	                         $gst_data = [];
+	                         // pr($get_vdc_data,1);
+	                         $total_good_item_amount = 0;
+	                         foreach ($get_vdc_data as $key => $value) {
+	                             if ($value->bad_condition_qty > 0) {
+	                                 $bad_parts_data[$value->bom_code] =
+	                                     $value->bad_condition_qty;
+	                                 $gst_data[$value->bom_code] = $value->gst;
+	                             }
+	                             $total_good_item_amount +=
+	                                 $value->good_condition_qty *
+	                                     $value->basic_rate +
+	                                 ($value->good_condition_qty *
+	                                     $value->basic_rate *
+	                                     $value->gst) /
+	                                     100;
+	                         }
+	                         $total_good_item_amount = number_format(
+	                             $total_good_item_amount,
+	                             2,
+	                             ".",
+	                             ""
+	                         );
+	                         $po_details = $this->admin_model->getPurchaseOrderItem(
+	                             $get_vdc_data[0]->po_number
+	                         );
+	                         $get_total_advance_payment = $this->getAdvancePaymentValue(
+	                             $get_vdc_data[0]->po_number
+	                         );
+	                         $po_part_details = [];
+	                         if ($a_status == "approved") {
+	                             foreach ($po_details as $key => $value) {
+	                                 if (
+	                                     array_key_exists(
+	                                         $value->bom_code,
+	                                         $bad_parts_data
+	                                     )
+	                                 ) {
+	                                     $gst = $gst_data[$value->bom_code] / 100;
+	                                     $remaining_qty =
+	                                         $value->po_quantity -
+	                                         $bad_parts_data[$value->bom_code];
+	                                     $total_amount =
+	                                         $remaining_qty * $value->basic_rate;
+	                                     $gst_amount = $total_amount * $gst;
+
+	                                     $po_part_details[] = [
+	                                         "id" => $value->id,
+	                                         "po_quantity" => $remaining_qty,
+	                                         "po_amount" =>
+	                                             $total_amount + $gst_amount,
+	                                         "updated_by" => $loguser_id,
+	                                         "updated_date" => date("Y-m-d H:i:s"),
+	                                     ];
+	                                 }
+	                             }
+
+	                             /* add debit note data */
+	                             $bad_qty_item = [];
+	                             $get_total_advance_payment = (float) $get_total_advance_payment;
+	                             // pr($get_total_advance_payment,1);
+	                             $total_good_item_amount = (float) $total_good_item_amount;
+	                             $type_for_bad_qty = "ReturnMemo";
+	                             if (
+	                                 $get_total_advance_payment >
+	                                 $total_good_item_amount
+	                             ) {
+	                                 $type_for_bad_qty = "DebitNote";
+	                             }
+	                             // pr($get_total_advance_payment);
+	                             // pr($total_good_item_amount);
+	                             foreach ($get_vdc_data as $key => $value) {
+	                                 if ($value->bad_condition_qty > 0) {
+	                                     $total_amount =
+	                                         $value->bad_condition_qty *
+	                                             $value->basic_rate +
+	                                         ($value->bad_condition_qty *
+	                                             $value->basic_rate *
+	                                             $value->gst) /
+	                                             100;
+	                                     $item_row_data = [
+	                                         "vdc_id" => $value->vdc_id,
+	                                         "vdc_number" => $value->vdc_number,
+	                                         "project_id" => $value->project_id,
+	                                         "vendor_category_id" =>
+	                                             $value->vendor_category_id,
+	                                         "vendor_id" => $value->vendor_id,
+	                                         "work_order_on" =>
+	                                             $value->work_order_on,
+	                                         "po_number" => $value->po_number,
+	                                         "vdc_item_id" => $value->vdc_item_id,
+	                                         "bom_code" => $value->bom_code,
+	                                         "boq_code" => $value->boq_code,
+	                                         "item_description" =>
+	                                             $value->item_description,
+	                                         "hsn_code" => $value->hsn_code,
+	                                         "unit" => $value->unit,
+	                                         "bad_condition_qty" =>
+	                                             $value->bad_condition_qty,
+	                                         "make" => $value->make,
+	                                         "model" => $value->model,
+	                                         "basic_rate" => $value->basic_rate,
+	                                         "veriable_rate" =>
+	                                             $value->veriable_rate,
+	                                         "gst" => $value->gst,
+	                                         "total_amount" => number_format(
+	                                             $total_amount,
+	                                             2,
+	                                             ".",
+	                                             ""
+	                                         ),
+	                                         "type" =>
+	                                             $type_for_bad_qty == "DebitNote"
+	                                                 ? "DebitNote"
+	                                                 : "ReturnMemo",
+	                                         "created_by" => $loguser_id,
+	                                         "created_on" => date("Y-m-d H:i:s"),
+	                                         "advance_payment" => number_format(
+	                                             $get_total_advance_payment,
+	                                             2,
+	                                             ".",
+	                                             ""
+	                                         ),
+	                                     ];
+
+	                                     $bad_qty_item[] = $item_row_data;
+	                                 }
+	                             }
+	                         }
+	                         $vdc_id = $pr_data[0]["vdc_id"];
+	                         $receipt_data = [
+	                             "status" =>
+	                                 $a_status == "approved"
+	                                     ? "approved"
+	                                     : "reject",
+	                             "approved_by" => $loguser_id,
+	                             "approved_date" => date("Y-m-d H:i:s"),
+	                         ];
+	                         $this->common_model->updateDetails(
+	                             "tbl_vendor_delivery_challan",
+	                             "vdc_id",
+	                             $vdc_id,
+	                             $receipt_data
+	                         );
+	                         $transaction_data = [
+	                             "status" =>
+	                                 $a_status == "approved"
+	                                     ? "approved"
+	                                     : "reject",
+	                             "approved_by" => $loguser_id,
+	                             "approved_date" => date("Y-m-d H:i:s"),
+	                         ];
+	                         if (!empty($transaction_id) && $transaction_id > 0) {
+	                             $this->common_model->updateDetails(
+	                                 "tbl_bom_transactions",
+	                                 "id",
+	                                 $transaction_id,
+	                                 $transaction_data
+	                             );
+	                             $this->admin_model->update_delivery_challan_item_data(
+	                                 $vdc_id,
+	                                 $transaction_data
+	                             );
+	                         }
+	                         if ($a_status == "approved") {
+	                             // if(count($po_part_details) > 0 ){
+	                             // 	$this->admin_model->getUpdatePurchaseOrderItemAfterBad($po_part_details);
+	                             // }
+
+	                             if (count($bad_qty_item) > 0) {
+	                                 $this->admin_model->save_debit_note_item_data(
+	                                     $bad_qty_item
+	                                 );
+	                             }
+	                         }
+
+	                         $this->json->jsonReturn([
+	                             "valid" => true,
+	                             "msg" =>
+	                                 '<div class="alert modify alert-success">Delivery Challan status changed successfully!</div>',
+	                         ]);
+	                     } else {
+	                         $this->json->jsonReturn([
+	                             "valid" => false,
+	                             "msg" =>
+	                                 '<div class="alert modify alert-danger"><strong>Error!</strong> Delivery Challan data not found.</div>',
+	                         ]);
+	                     }
+	                 } else {
+	                     $this->json->jsonReturn([
+	                         "valid" => false,
+	                         "msg" =>
+	                             '<div class="alert modify alert-danger"><strong>Error!</strong> You have no permission!</div>',
+	                     ]);
+	                 }
+	             } else {
+	                 $this->json->jsonReturn([
+	                     "valid" => false,
+	                     "msg" =>
+	                         '<div class="alert modify alert-danger"><strong>Error!</strong> You have no permission!</div>',
+	                 ]);
+	             }
+	         } else {
+	             $this->json->jsonReturn([
+	                 "valid" => false,
+	                 "msg" =>
+	                     '<div class="alert modify alert-danger"><strong>Error!</strong> You are not logged in or your role is invalid!</div>',
+	             ]);
+	         }
+	     }
+	    public function save_vendor_delivery_challan_data()
+	     {
+	         // pr($_FILES);
+	         // pr($_POST);
+
+	         $loguser_id = $this->session->userData("user_id");
+	         $logrole_id = $this->session->userData("role_id");
+
+	         if (
+	             isset($loguser_id) &&
+	             !empty($loguser_id) &&
+	             isset($logrole_id) &&
+	             !empty($logrole_id)
+	         ) {
+	             $submenu_data = $this->common_model->selectDetailsWhr(
+	                 "tbl_submenu",
+	                 "action",
+	                 "save_vendor_delivery_challan"
+	             );
+	             if (
+	                 isset($submenu_data->submenu_id) &&
+	                 !empty($submenu_data->submenu_id)
+	             ) {
+	                 $submenu_id = $submenu_data->submenu_id;
+	                 $check_permission = $this->admin_model->check_permission(
+	                     $submenu_id,
+	                     $logrole_id
+	                 );
+	                 if (isset($check_permission) && !empty($check_permission)) {
+	                     $error = "N";
+	                     $error_message = "";
+	                     if (isset($loguser_id) && empty($loguser_id)) {
+	                         $error = "Y";
+	                         $error_message = "Please loggedin!";
+	                     }
+
+	                     $vdc_count = count(
+	                         $this->admin_model->get_vendor_dc_list_data()
+	                     );
+	                     $financial_year = $this->getFinancialYear();
+	                     $vdc_number =
+	                         "VDC/" . $financial_year . "/" . ($vdc_count + 1);
+	                     $get_existing_vdc_data = $this->admin_model->get_vendor_dc_details_by_po(
+	                         $this->input->post("po_number")
+	                     );
+
+	                     $bom_code = $this->input->post("bom_code");
+	                     $bom_dc_stock_arr = $this->input->post("bom_dc_stock");
+	                     $bom_good_condition_arr = $this->input->post(
+	                         "bom_good_condition"
+	                     );
+	                     $bom_bad_condition_arr = $this->input->post(
+	                         "bom_bad_condition"
+	                     );
+	                     $item_details_array = [];
+	                     foreach ($bom_code as $key => $val) {
+	                         if (
+	                             ($bom_good_condition_arr[$key] > 0 ||
+	                                 $bom_bad_condition_arr[$key] > 0) &&
+	                             $bom_dc_stock_arr[$key] > 0
+	                         ) {
+	                             $item_details_array[] = [
+	                                 "bom_code" => $val,
+	                             ];
+	                         }
+	                     }
+	                     if (count($item_details_array) == 0) {
+	                         $error = "Y";
+	                         $error_message = "Please enter item qty.";
+	                     }
+
+	                     if ($error == "N") {
+	                         $config["upload_path"] =
+	                             "./uploads/vendor_delivery_challan/";
+	                         $config["allowed_types"] =
+	                             "doc|pdf|txt|png|PNG|jpg|JPG|jpeg|JPEG|xls|xlsx";
+	                         $config["encrypt_name"] = true;
+
+	                         $this->load->library("upload", $config);
+	                         $file_name = "";
+	                         if (!empty($_FILES["attachement"]["name"])) {
+	                             if ($this->upload->do_upload("attachement")) {
+	                                 $uploaded_data = $this->upload->data();
+	                                 $file_name = $uploaded_data["file_name"];
+	                             } else {
+	                                 $success = 0;
+	                                 $messages = $this->upload->display_errors();
+	                                 $return_arr["success"] = $success;
+	                                 $return_arr["messages"] = $messages;
+	                                 echo json_encode($return_arr);
+	                                 exit();
+	                             }
+	                         }
+	                         if (count($get_existing_vdc_data) == 0) {
+	                             $transaction_insert_arr = [
+	                                 "project_id" => $this->input->post(
+	                                     "project_id"
+	                                 ),
+	                                 "event_name" => "Vendor Delivery Challan",
+	                                 "event_type" => "vendor_delivery_challan",
+	                                 "created_by" => $loguser_id,
+	                                 "created_date" => date("Y-m-d H:i:s"),
+	                                 "display" => "Y",
+	                                 "status" => "pending",
+	                             ];
+	                             $transaction_insert_id = $this->admin_model->SavePerformaInvoiceTransaction(
+	                                 $transaction_insert_arr
+	                             );
+
+	                             $vdc_insert_arr = [
+	                                 "vdc_number" => $vdc_number,
+	                                 "project_id" => $this->input->post(
+	                                     "project_id"
+	                                 ),
+	                                 "vendor_category_id" => $this->input->post(
+	                                     "vendor_category_id"
+	                                 ),
+	                                 "vendor_id" => $this->input->post("vendor_id"),
+	                                 "work_order_on" => $this->input->post(
+	                                     "work_order_on"
+	                                 ),
+	                                 "dc_date" => $this->input->post("dc_date"),
+	                                 "suppliers_ref" => $this->input->post(
+	                                     "suppliers_ref"
+	                                 ),
+	                                 "registered_address" => $this->input->post(
+	                                     "registered_address"
+	                                 ),
+	                                 "po_number" => $this->input->post("po_number"),
+	                                 "po_date" => $this->input->post("po_date"),
+	                                 "e_way_number" => $this->input->post(
+	                                     "e_way_number"
+	                                 ),
+	                                 "gst_number" => $this->input->post(
+	                                     "gst_number"
+	                                 ),
+	                                 "dispatch_document_no" => $this->input->post(
+	                                     "dispatch_document_no"
+	                                 ),
+	                                 "destination" => $this->input->post(
+	                                     "destination"
+	                                 ),
+	                                 "site_address" => $this->input->post(
+	                                     "site_address"
+	                                 ),
+	                                 "dispatch_through" => $this->input->post(
+	                                     "dispatch_through"
+	                                 ),
+	                                 "terms_of_delivery" => $this->input->post(
+	                                     "terms_of_delivery"
+	                                 ),
+	                                 "attachement" => $file_name,
+	                                 "transaction_id" => $transaction_insert_id,
+	                                 "status" => "pending",
+	                                 "display" => "Y",
+	                                 "created_by" => $loguser_id,
+	                                 "created_on" => date("Y-m-d H:i:s"),
+	                             ];
+
+	                             $vdc_id = $this->admin_model->saveVendorDelieryChallan(
+	                                 $vdc_insert_arr
+	                             );
+	                         } else {
+	                             $vdc_id = $get_existing_vdc_data[0]["vdc_id"];
+	                             $transaction_insert_id =
+	                                 $get_existing_vdc_data[0]["transaction_id"];
+	                             $input_params = ["status" => "pending"];
+	                             $this->admin_model->update_delivery_challan_data(
+	                                 $input_params,
+	                                 $vdc_id
+	                             );
+	                             $this->admin_model->updatePoTransactionStatus(
+	                                 $transaction_insert_id
+	                             );
+	                         }
+	                         $bom_code = $this->input->post("bom_code");
+	                         $bom_item_description_arr = $this->input->post(
+	                             "bom_item_description"
+	                         );
+	                         $bom_hsn_sac_code_arr = $this->input->post(
+	                             "hsn_sac_code"
+	                         );
+	                         $bom_unit_arr = $this->input->post("bom_unit");
+	                         $bom_po_stock_arr = $this->input->post("bom_po_stock");
+	                         $bom_dc_stock_arr = $this->input->post("bom_dc_stock");
+	                         $bom_good_condition_arr = $this->input->post(
+	                             "bom_good_condition"
+	                         );
+	                         $bom_bad_condition_arr = $this->input->post(
+	                             "bom_bad_condition"
+	                         );
+	                         $bom_make_arr = $this->input->post("bom_make");
+	                         $bom_model_arr = $this->input->post("bom_model");
+	                         $basic_rate_arr = $this->input->post("basic_rate");
+	                         $veriable_rate_arr = $this->input->post("rate_basic");
+	                         $bom_gst_arr = $this->input->post("bom_gst");
+	                         $total_amount_arr = $this->input->post("amount");
+
+	                         $item_details_arr = [];
+	                         foreach ($bom_code as $key => $val) {
+	                                 $item_details_arr[] = [
+	                                     "vdc_id" => $vdc_id,
+	                                     "bom_code" => $val,
+	                                     "boq_code" => "",
+	                                     "item_description" =>
+	                                         $bom_item_description_arr[$key],
+	                                     "hsn_code" => $bom_hsn_sac_code_arr[$key],
+	                                     "unit" => $bom_unit_arr[$key],
+	                                     "qty" => $bom_po_stock_arr[$key],
+	                                     "dc_qty" => $bom_dc_stock_arr[$key],
+	                                     "good_condition_qty" =>
+	                                         $bom_good_condition_arr[$key],
+	                                     "bad_condition_qty" =>
+	                                         $bom_bad_condition_arr[$key],
+	                                     "make" => $bom_make_arr[$key],
+	                                     "model" => $bom_model_arr[$key],
+	                                     "basic_rate" => $basic_rate_arr[$key],
+	                                     "veriable_rate" =>
+	                                         $veriable_rate_arr[$key],
+	                                     "gst" => $bom_gst_arr[$key],
+	                                     "total_amount" => $total_amount_arr[$key],
+	                                     "transaction_id" => $transaction_insert_id,
+	                                     "created_by" => $loguser_id,
+	                                     "created_on" => date("Y-m-d H:i:s"),
+	                                     "display" => "Y",
+	                                     "status" => "pending",
+	                                 ];
+	                         }
+
+	                         // pr($item_details_arr,1);
+
+	                         $vdc_item_id = $this->admin_model->saveVendorDelieryChallanItem(
+	                             $item_details_arr
+	                         );
+
+	                         if ($vdc_item_id > 0) {
+	                             $success = 1;
+	                             $messages =
+	                                 "Delivery Challan Genrated successfully.";
+	                         } else {
+	                             $success = 0;
+	                             $messages =
+	                                 "Something went wrong, Please try again.";
+	                         }
+	                     } else {
+	                         $success = 0;
+	                         $messages = $error_message;
+	                     }
+	                 } else {
+	                     $success = 0;
+	                     $messages = "You have no permission!!";
+	                 }
+	             }
+	         }
+	         $return_arr["success"] = $success;
+	         $return_arr["messages"] = $messages;
+
+	         echo json_encode($return_arr);
+	         exit();
+	     }
+	     public function getAdvancePaymentValue($po_number = "")
+	     {
+	         /* get total advance payment*/
+	         $pr_details = $this->admin_model->getAdvancePayment($po_number);
+	         $total_advance_payment = array_sum(
+	             array_column($pr_details, "total_amount_with_deduction")
+	         );
+
+	         $pr_details = $this->admin_model->get_dc_details_item_for_debit_note(
+	             $po_number
+	         );
+	         $total_good_item_amount = 0;
+	         foreach ($pr_details as $key => $value) {
+	             $total_good_item_amount += $value["total_amount"];
+	         }
+	         $total_advance_payment =
+	             $total_advance_payment - $total_good_item_amount >= 0
+	                 ? $total_advance_payment - $total_good_item_amount
+	                 : 0;
+	         $total_advance_payment = number_format(
+	             $total_advance_payment,
+	             2,
+	             ".",
+	             ""
+	         );
+	         return $total_advance_payment;
+	     }
+	     public function vendor_delivery_challan()
+	     {
+	         $po_number = base64_decode($_GET["po"]);
+	         $po_details = $this->common_model->selectAllWhr(
+	             "tbl_purchase_order",
+	             "po_number",
+	             $po_number
+	         );
+	         $project_item_data = $this->admin_model->getProjectItem(
+	             $po_details[0]->project_id
+	         );
+	         $po_list = $this->admin_model->purchase_list();
+	         /* get total advance payment*/
+	         $total_advance_payment = $this->getAdvancePaymentValue($po_number);
+
+	         // pr($total_advance_payment,1);
+	         // get already added parts
+	         $parts_added = $this->admin_model->get_vendor_dc_item_added_already(
+	             $po_number
+	         );
+	         $dc_date = $suppliers_ref = $e_way_number = $gst_number = $dispatch_through = $dispatch_document_no = $terms_of_delivery =
+	             "";
+	         if (count($parts_added) > 0) {
+	             $dc_date = $parts_added[0]["dc_date"];
+	             $suppliers_ref = $parts_added[0]["suppliers_ref"];
+	             $e_way_number = $parts_added[0]["e_way_number"];
+	             $gst_number = $parts_added[0]["gst_number"];
+	             $dispatch_through = $parts_added[0]["dispatch_through"];
+	             $dispatch_document_no = $parts_added[0]["dispatch_document_no"];
+	             $terms_of_delivery = $parts_added[0]["terms_of_delivery"];
+	         }
+	         // pr($parts_added,1);
+	         /* for remove pending parts from listing */
+	         $pending_parts = [];
+
+	         /* for remove pending parts from listing */
+	         foreach ($parts_added as $key => $value) {
+	             if ($value["status"] == "pending") {
+	                 array_push($pending_parts, $value["bom_code"]);
+	             }
+	         }
+
+	         foreach ($parts_added as $key => $value) {
+	             $parts_added_bom_wise[$value["bom_code"]] += $value["dc_qty"];
+	         }
+
+	         // $parts_added_bom_wise = array_column($parts_added,"dc_qty","bom_code");
+	         // pr($parts_added_bom_wise,1);
+	         // pr($parts_added_bom_wise,1);
+	         $project_item_basic_rate = array_column(
+	             $project_item_data,
+	             "rate_basic",
+	             "bom_code"
+	         );
+	         $item_description = array_column(
+	             $project_item_data,
+	             "item_description",
+	             "bom_code"
+	         );
+	         $item_hsn_sac_code = array_column(
+	             $project_item_data,
+	             "hsn_sac_code",
+	             "bom_code"
+	         );
+	         $item_unit = array_column($project_item_data, "unit", "bom_code");
+	         $item_gst = array_column($project_item_data, "gst", "bom_code");
+	         $item_model = array_column($project_item_data, "model", "bom_code");
+	         $item_make = array_column($project_item_data, "make", "bom_code");
+	         $po_items = [];
+	         $i = 1;
+	         foreach ($po_details as $key => $val) {
+	             // pr($val);
+	             if (!in_array($val->bom_code, $pending_parts)) {
+	                 $item_makes = explode("/", $item_make[$val->bom_code]);
+	                 $make_slect_opt =
+	                     "<option value='" .
+	                     $item_make[$val->bom_code] .
+	                     "' >Select Make</option>";
+	                 foreach ($item_makes as $vals) {
+	                     if ($vals == $val->make) {
+	                         $make_slect_opt .=
+	                             "<option value='" .
+	                             $vals .
+	                             "' selected>" .
+	                             $vals .
+	                             "</option>";
+	                     } else {
+	                         $make_slect_opt .=
+	                             "<option value='" .
+	                             $vals .
+	                             "'>" .
+	                             $vals .
+	                             "</option>";
+	                     }
+	                 }
+	                 $item_models = explode("/", $item_model[$val->bom_code]);
+	                 $model_slect_opt =
+	                     "<option value='" .
+	                     $item_make[$val->bom_code] .
+	                     "' >Select Model</option>";
+	                 foreach ($item_models as $vals) {
+	                     if ($vals == $val->model) {
+	                         $model_slect_opt .=
+	                             "<option value='" .
+	                             $vals .
+	                             "' selected>" .
+	                             $vals .
+	                             "</option>";
+	                     } else {
+	                         $model_slect_opt .=
+	                             "<option value='" .
+	                             $vals .
+	                             "'>" .
+	                             $vals .
+	                             "</option>";
+	                     }
+	                 }
+	                 $total_qty =
+	                     number_format((float) $val->po_quantity, 2, ".", "") -
+	                     number_format(
+	                         (float) $parts_added_bom_wise[$val->bom_code],
+	                         2,
+	                         ".",
+	                         ""
+	                     );
+	                 $basic_rate =
+	                     $project_item_basic_rate[$val->bom_code] * $total_qty;
+	                 $gst_total = 1 + $item_gst[$val->bom_code] / 100;
+	                 $total_amount = number_format(
+	                     round(
+	                         $project_item_basic_rate[$val->bom_code] *
+	                             $total_qty *
+	                             $gst_total,
+	                         2
+	                     ),
+	                     2,
+	                     ".",
+	                     ""
+	                 );
+
+	                 if ($total_qty > 0) {
+	                     $po_items[] = [
+	                         "sr_no" => $i + 1,
+	                         "req_qty" => $total_qty,
+	                         "boq_code" => $val->boq_code,
+	                         "bom_code" => $val->bom_code,
+	                         "bom_item_description" =>
+	                             $item_description[$val->bom_code],
+	                         "hsn_sac_code" => $item_hsn_sac_code[$val->bom_code],
+	                         "bom_unit" => $item_unit[$val->bom_code],
+	                         "bom_make" => $val->make,
+	                         "bom_model" => $val->model,
+	                         "bom_po_stock" => $total_qty,
+	                         "bom_dc_stock" => $total_qty,
+	                         "rate_basic" =>
+	                             $project_item_basic_rate[$val->bom_code],
+	                         "bom_gst" => $item_gst[$val->bom_code],
+	                         "amount" => $total_amount,
+	                         "make_opt" => $make_slect_opt,
+	                         "model_opt" => $model_slect_opt,
+	                     ];
+	                 }
+	             }
+	         }
+
+	         $data["po_items"] = $po_items;
+	         $common_data = [
+	             "transaction_id" => $po_details[0]->transaction_id,
+	             "po_number" => $po_details[0]->po_number,
+	             "project_id" => $po_details[0]->project_id,
+	             "category_id" => $po_details[0]->vendor_category,
+	             "vendor_id" => $po_details[0]->vendor_id,
+	             "terms_and_condition" => $po_details[0]->terms_and_condition,
+	             "remark" => $po_details[0]->remark,
+	         ];
+
+	         $vendor_data = $this->admin_model->getVendorDetail(
+	             $common_data["vendor_id"]
+	         );
+	         $category_data = $this->admin_model->getCategoryDetails(
+	             $common_data["category_id"]
+	         );
+	         $transaction_data = $this->common_model->selectDetailsWhr(
+	             "tbl_bom_transactions",
+	             "id",
+	             $common_data["transaction_id"]
+	         );
+	         $project_data = $this->common_model->selectDetailsWhr(
+	             "tbl_projects",
+	             "project_id",
+	             $common_data["project_id"]
+	         );
+	         $delivery_challan_data = $this->common_model->selectDetailsWhr(
+	             "view_dcc",
+	             "project_id",
+	             $common_data["project_id"]
+	         );
+	         $consignee_data = $this->common_model->selectAllWhr(
+	             "tbl_deliv_challan_consignee",
+	             "project_id",
+	             $common_data["project_id"]
+	         );
+	         $data["po_details"] = $po_details;
+	         $data["category_data"] = $category_data[0];
+	         $data["vendor_data"] = $vendor_data[0];
+	         $data["transaction_data"] = $transaction_data;
+	         $data["project_data"] = $project_data;
+	         $data["common_data"] = $common_data;
+	         $data["delivery_challan_data"] = $delivery_challan_data;
+	         $data["consignee_data"] = $consignee_data;
+	         $data["po_number"] = $po_number;
+	         $data["dc_date"] = $dc_date;
+	         $data["suppliers_ref"] = $suppliers_ref;
+	         $data["e_way_number"] = $e_way_number;
+	         $data["gst_number"] = $gst_number;
+	         $data["dispatch_through"] = $dispatch_through;
+	         $data["dispatch_document_no"] = $dispatch_document_no;
+	         $data["terms_of_delivery"] = $terms_of_delivery;
+	         $data["total_advance_payment"] = number_format(
+	             $total_advance_payment,
+	             2
+	         );
+	         $data["pending_parts"] = $pending_parts;
+	         $data["po_list"] = $po_list;
+	         $this->load->view("vendor_delivery_challan", $data);
+	     }
+	     public function project_bom_trans_list_display()
+     {
+         $transaction_id = $this->input->post("transaction_id");
+         if (isset($transaction_id) && !empty($transaction_id)) {
+             $transaction_id = $transaction_id;
+         }
+         $transaction_type = $this->input->post("transaction_type");
+         if (isset($transaction_type) && !empty($transaction_type)) {
+             $transaction_type = $transaction_type;
+         }
+         $project_id = $this->input->post("project_id");
+         if (isset($project_id) && !empty($project_id)) {
+             $project_id = base64_decode($project_id);
+         }
+         $boq_code = $this->input->post("boq_code");
+         if (isset($boq_code) && !empty($boq_code)) {
+             $boq_code = $boq_code;
+         }
+
+         $filter = $this->input->post("filter");
+         if (isset($filter) && !empty($filter)) {
+             $filter = $filter;
+         } else {
+             $filter = "original";
+         }
+         $calculatedfiler = $this->input->post("calculatedfiler");
+         if (isset($calculatedfiler) && !empty($calculatedfiler)) {
+             $calculatedfiler = $calculatedfiler;
+         } else {
+             $calculatedfiler = "without_gst";
+         }
+         $status_txtpost = $this->input->post("status_txt");
+         if (isset($status_txtpost) && !empty($status_txtpost)) {
+             $status_txt = $status_txtpost;
+         } else {
+             $status_txt = "";
+         }
+
+         $check_permission_status = "N";
+         $loguser_id = $this->session->userData("user_id");
+         $logrole_id = $this->session->userData("role_id");
+         if (
+             isset($loguser_id) &&
+             !empty($loguser_id) &&
+             isset($logrole_id) &&
+             !empty($logrole_id)
+         ) {
+             $submenu_data = $this->common_model->selectDetailsWhr(
+                 "tbl_submenu",
+                 "action",
+                 "approved_bom_details"
+             );
+             if (
+                 isset($submenu_data->submenu_id) &&
+                 !empty($submenu_data->submenu_id)
+             ) {
+                 $submenu_id = $submenu_data->submenu_id;
+                 $check_permission = $this->admin_model->check_permission(
+                     $submenu_id,
+                     $logrole_id
+                 );
+                 if (isset($check_permission) && !empty($check_permission)) {
+                     $check_permission_status = "Y";
+                 }
+             }
+         }
+         $user_id = $this->session->userData("user_id");
+         $skip_unique = false;
+
+         if (isset($user_id) && !empty($user_id)) {
+             $data = $row = [];
+             $is_first_upload = 0;
+             if (
+                 $transaction_type == "bom_upload" ||
+                 $transaction_type == "add_edit_bom"
+             ) {
+                 $memData = $this->admin_model->getViewBOMTransListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $allCount = $this->admin_model->countViewBOMTransListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = $this->admin_model->countViewBOMTransListFiltered(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+             } elseif ($transaction_type == "release_qty") {
+                 $memData = $this->admin_model->getViewBOMTransReleaseQtyListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $allCount = $this->admin_model->countViewBOMTransReleaseQtyListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = $this->admin_model->countViewBOMTransReleaseQtyListFiltered(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+             } elseif ($transaction_type == "indent_request") {
+                 $memData = $this->admin_model->getViewBOMIndentListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $allCount = $this->admin_model->countViewBOMIndentListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = $this->admin_model->countViewBOMIndentListFiltered(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+             } elseif ($transaction_type == "purchase_order") {
+                 $memData = $this->admin_model->getViewBomPOListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $allCount = $this->admin_model->countViewBomPoListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = $this->admin_model->countViewBOMIndentListFiltered(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+             } elseif ($transaction_type == "vendor_proforma_invoice") {
+                 $memData = $this->admin_model->getViewBomVpiListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $allCount = $this->admin_model->countViewBomVpiListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = $this->admin_model->countViewBOMIndentListFiltered(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+             } elseif (
+                 $transaction_type == "debit_note" ||
+                 $transaction_type == "return_memo"
+             ) {
+                 $type_val =
+                     $transaction_type == "return_memo"
+                         ? "ReturnMemo"
+                         : "DebitNote";
+                 $memData = $this->admin_model->getViewDebitListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt,
+                     $type_val
+                 );
+                 $allCount = $this->admin_model->countViewDebitiListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt,
+                     $type_val
+                 );
+                 $countFiltered = count($memData);
+             } elseif ($transaction_type == "delivery_challan") {
+                 $skip_unique = true;
+                 $memData = $this->admin_model->getViewBomDCListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     "both"
+                 );
+                 $allCount = $this->admin_model->countViewBomDCiListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = count($memData);
+                 $mergedData = [];
+                 foreach ($memData as $item) {
+                     $bom_code = $item->bom_code;
+                     if (isset($mergedData[$bom_code])) {
+                         $mergedData[$bom_code]->dc_qty += $item->dc_qty;
+                         $mergedData[$bom_code]->good_condition_qty +=
+                             $item->good_condition_qty;
+                         $mergedData[$bom_code]->bad_condition_qty +=
+                             $item->bad_condition_qty;
+                         if ($item->status === "pending") {
+                             $mergedData[$bom_code]->status = "pending";
+                         } elseif (
+                             $item->status === "reject" &&
+                             $mergedData[$bom_code]->status !== "pending"
+                         ) {
+                             $mergedData[$bom_code]->status = "reject";
+                         }
+                     } else {
+                         $mergedData[$bom_code] = clone $item;
+                     }
+                 }
+                 $memData = array_values($mergedData);
+             } elseif ($transaction_type == "vendor_delivery_challan") {
+                 $transaction_type = "delivery_challan";
+                 $vdc_dat = $this->admin_model->get_vendor_dc_list_data_by_traansaction_id(
+                     $transaction_id,
+                     $boq_code
+                 );
+                 $transaction_id = $vdc_dat[0]["vdc_id"];
+                 $memData = $this->admin_model->getViewBomDCListRows(
+                     $_POST,
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     "pending"
+                 );
+
+                 $allCount = $this->admin_model->countViewBomDCiListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = count($memData);
+             } elseif ($transaction_type == "fore_close") {
+                 $memData = $this->admin_model->getViewBomForeCloseListRows(
+                     $transaction_id
+                 );
+                 $allCount = $this->admin_model->countViewBomForeCloseListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = count($memData);
+             } elseif ($transaction_type == "good_received_notes") {
+                 $memData = $this->admin_model->getViewBomGrnListRows(
+                     $transaction_id,
+                     "Pending"
+                 );
+                 $allCount = $this->admin_model->countViewBomGrnListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = count($memData);
+             } elseif ($transaction_type == "ppi_tax_invoice") {
+                 $memData = $this->admin_model->getViewBomppiTaxInvoiceListRows(
+                     $transaction_id
+                 );
+                 $allCount = $this->admin_model->countViewBomPpiTaxInvoiceListAll(
+                     $project_id,
+                     $transaction_id,
+                     $boq_code,
+                     $status_txt
+                 );
+                 $countFiltered = count($memData);
+             }
+             // pr($transaction_type);
+
+             // pr($memData,1);
+
+             $i = $_POST["start"];
+             $unique_arr = [];
+
+             foreach ($memData as $member) {
+                 $i++;
+                 if (
+                     isset($member->boq_items_id) &&
+                     !empty($member->boq_items_id)
+                 ) {
+                     $boq_items_id = $member->boq_items_id;
+                 } else {
+                     $boq_items_id = "-";
+                 }
+                 if (
+                     isset($member->project_id) &&
+                     !empty($member->project_id)
+                 ) {
+                     $project_id = $member->project_id;
+                 } else {
+                     $project_id = "-";
+                 }
+                 if (isset($member->bom_code) && !empty($member->bom_code)) {
+                     $bom_code = $member->bom_code;
+                 } else {
+                     $bom_code = "-";
+                 }
+                 if (isset($member->boq_code) && !empty($member->boq_code)) {
+                     $boq_code = $member->boq_code;
+                 } else {
+                     $boq_code = "-";
+                 }
+                 if (
+                     isset($member->item_description) &&
+                     !empty($member->item_description)
+                 ) {
+                     $item_description = $member->item_description;
+                 } else {
+                     $item_description = "-";
+                 }
+                 if (isset($member->make) && !empty($member->make)) {
+                     $make = $member->make;
+                 } else {
+                     $make = "-";
+                 }
+                 if (isset($member->model) && !empty($member->model)) {
+                     $model = $member->model;
+                 } else {
+                     $model = "-";
+                 }
+                 if (isset($member->unit) && !empty($member->unit)) {
+                     $unit = $member->unit;
+                 } else {
+                     $unit = "-";
+                 }
+                 if (
+                     isset($member->rate_basic) &&
+                     !empty($member->rate_basic)
+                 ) {
+                     $rate_basic = $member->rate_basic;
+                 } else {
+                     $rate_basic = "0";
+                 }
+                 if (isset($member->gst) && !empty($member->gst)) {
+                     $gst = $member->gst;
+                 } else {
+                     $gst = "0";
+                 }
+                 if (isset($member->status) && !empty($member->status)) {
+                     $status = $member->status;
+                 } else {
+                     $status = "N";
+                 }
+                 if (isset($member->bp_code) && !empty($member->bp_code)) {
+                     $bp_code = $member->bp_code;
+                 } else {
+                     $bp_code = "0";
+                 }
+                 if (
+                     isset($member->is_billing_inter_state) &&
+                     !empty($member->is_billing_inter_state)
+                 ) {
+                     $is_billing_inter_state = $member->is_billing_inter_state;
+                 } else {
+                     $is_billing_inter_state = "N";
+                 }
+                 if (
+                     isset($member->o_design_qty) &&
+                     !empty($member->o_design_qty)
+                 ) {
+                     $o_design_qty = $member->o_design_qty;
+                 } else {
+                     $o_design_qty = "0";
+                 }
+                 if (
+                     isset($member->upload_design_qty) &&
+                     !empty($member->upload_design_qty)
+                 ) {
+                     $upload_design_qty = $member->upload_design_qty;
+                 } else {
+                     $upload_design_qty = "0";
+                 }
+                 if (
+                     isset($member->design_qty) &&
+                     !empty($member->design_qty)
+                 ) {
+                     $design_qty = $member->design_qty;
+                 } else {
+                     $design_qty = "0";
+                 }
+                 if (isset($member->display) && !empty($member->display)) {
+                     $display = $member->display;
+                 } else {
+                     $display = "N";
+                 }
+                 if (isset($member->display) && !empty($member->hsn_sac_code)) {
+                     $hsn_sac_code = $member->hsn_sac_code;
+                 } else {
+                     $hsn_sac_code = "";
+                 }
+
+                 if (
+                     $transaction_type == "indent_request" ||
+                     $transaction_type == "purchase_order" ||
+                     $transaction_type == "vendor_proforma_invoice" ||
+                     $transaction_type == "delivery_challan" ||
+                     $transaction_type == "fore_close" ||
+                     $transaction_type == "good_received_notes" ||
+                     $transaction_type == "ppi_tax_invoice"
+                 ) {
+                     $action_status = "";
+                     if ($status == "approved") {
+                         $action_status .=
+                             '<span style="color:green;font-weight:600;">Approved</span>';
+                         if ($display == "N") {
+                             $action_status .=
+                                 '<br><span style="color:red;font-weight:600;">Deleted</span>';
+                         }
+                     } else {
+                         $action_status .=
+                             '<span style="color:orange;font-weight:600;">Pending</span>';
+                         if ($display == "N") {
+                             $action_status .=
+                                 '<br><span style="color:red;font-weight:600;">Deleted</span>';
+                         }
+                     }
+
+                     if (
+                         $status == "reject" &&
+                         $transaction_type == "delivery_challan"
+                     ) {
+                         $action_status =
+                             '<span style="color:red;font-weight:600;">Rejected</span>';
+                     }
+                 } else {
+                     $action_status = "";
+                     if ($status == "Y") {
+                         $action_status .=
+                             '<span style="color:green;font-weight:600;">Approved</span>';
+                         if ($display == "N") {
+                             $action_status .=
+                                 '<br><span style="color:red;font-weight:600;">Deleted</span>';
+                         }
+                     } else {
+                         $action_status .=
+                             '<span style="color:orange;font-weight:600;">Pending</span>';
+                         if ($display == "N") {
+                             $action_status .=
+                                 '<br><span style="color:red;font-weight:600;">Deleted</span>';
+                         }
+                     }
+                 }
+
+                 $html = "";
+                 if ($status == "pending" && $check_permission_status == "Y") {
+                     $html .=
+                         '&nbsp;&nbsp;&nbsp;<a class="btn btn-success btn-xs active_link_wt_approve" href="javascript:void(0);" rev="approved_bom_details" rel="' .
+                         $boq_items_id .
+                         '" title="Click here to Approved Record" data-status="Y">Approve</a>';
+                 }
+
+                 if (
+                     $transaction_type == "bom_upload" ||
+                     $transaction_type == "add_edit_bom"
+                 ) {
+                     if ($upload_design_qty == $design_qty) {
+                         $qty_pending = $upload_design_qty;
+                     } else {
+                         $qty_pending = $upload_design_qty - abs($design_qty);
+                     }
+                 } elseif ($transaction_type == "release_qty") {
+                     if (
+                         isset($member->released_quantity) &&
+                         !empty($member->released_quantity)
+                     ) {
+                         $released_quantity = $member->released_quantity;
+                     } else {
+                         $released_quantity = "0";
+                     }
+                     $qty_pending = $released_quantity;
+                 } elseif ($transaction_type == "indent_request") {
+                     if (
+                         isset($member->indent_quantity) &&
+                         !empty($member->indent_quantity)
+                     ) {
+                         $indent_quantity = $member->indent_quantity;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "purchase_order") {
+                     if (
+                         isset($member->indent_quantity) &&
+                         !empty($member->indent_quantity)
+                     ) {
+                         $indent_quantity = $member->indent_quantity;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "vendor_proforma_invoice") {
+                     if (isset($member->qty) && !empty($member->qty)) {
+                         $indent_quantity = $member->qty;
+                     } else {
+                         $qty = "0";
+                     }
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "delivery_challan") {
+                     if (
+                         isset($member->good_condition_qty) &&
+                         !empty($member->good_condition_qty)
+                     ) {
+                         $indent_quantity = $member->good_condition_qty;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     if (
+                         isset($member->veriable_rate) &&
+                         !empty($member->veriable_rate)
+                     ) {
+                         $rate_basic = $member->veriable_rate;
+                     } else {
+                         $rate_basic = "0";
+                     }
+                     // pr($this->db->last_query(),1);
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "fore_close") {
+                     if (
+                         isset($member->hsn_code) &&
+                         !empty($member->hsn_code)
+                     ) {
+                         $hsn_sac_code = $member->hsn_code;
+                     } else {
+                         $hsn_sac_code = "-";
+                     }
+                     if (
+                         isset($member->fore_close_qty) &&
+                         !empty($member->fore_close_qty)
+                     ) {
+                         $indent_quantity = $member->fore_close_qty;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     if (
+                         isset($member->veriable_rate) &&
+                         !empty($member->veriable_rate)
+                     ) {
+                         $rate_basic = $member->veriable_rate;
+                     } else {
+                         $rate_basic = "0";
+                     }
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "good_received_notes") {
+                     if (
+                         isset($member->hsn_code) &&
+                         !empty($member->hsn_code)
+                     ) {
+                         $hsn_sac_code = $member->hsn_code;
+                     } else {
+                         $hsn_sac_code = "-";
+                     }
+                     if (isset($member->grn_qty) && !empty($member->grn_qty)) {
+                         $indent_quantity = $member->grn_qty;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     if (
+                         isset($member->basic_rate) &&
+                         !empty($member->basic_rate)
+                     ) {
+                         $rate_basic = $member->basic_rate;
+                     } else {
+                         $rate_basic = "0";
+                     }
+
+                     $qty_pending = $indent_quantity;
+                 } elseif ($transaction_type == "ppi_tax_invoice") {
+                     if (
+                         isset($member->hsn_code) &&
+                         !empty($member->hsn_code)
+                     ) {
+                         $hsn_sac_code = $member->hsn_code;
+                     } else {
+                         $hsn_sac_code = "-";
+                     }
+                     if (isset($member->qty) && !empty($member->qty)) {
+                         $indent_quantity = $member->qty;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     if (isset($member->rate) && !empty($member->rate)) {
+                         $rate_basic = $member->rate;
+                     } else {
+                         $rate_basic = "0";
+                     }
+
+                     $qty_pending = $indent_quantity;
+                 } elseif (
+                     $transaction_type == "debit_note" ||
+                     $transaction_type == "return_memo"
+                 ) {
+                     if (
+                         isset($member->hsn_code) &&
+                         !empty($member->hsn_code)
+                     ) {
+                         $hsn_sac_code = $member->hsn_code;
+                     } else {
+                         $hsn_sac_code = "-";
+                     }
+                     if (
+                         isset($member->bad_condition_qty) &&
+                         !empty($member->bad_condition_qty)
+                     ) {
+                         $indent_quantity = $member->bad_condition_qty;
+                     } else {
+                         $indent_quantity = "0";
+                     }
+                     if (
+                         isset($member->basic_rate) &&
+                         !empty($member->basic_rate)
+                     ) {
+                         $rate_basic = $member->basic_rate;
+                     } else {
+                         $rate_basic = "0";
+                     }
+
+                     $qty_pending = $indent_quantity;
+                 }
+
+                 if ($gst > 0) {
+                     $total_amount = $rate_basic * $qty_pending;
+                     $gst_amount = 0;
+                     if ($total_amount > 0 && $gst > 0) {
+                         $gst_amount = $total_amount * ($gst / 100);
+                     }
+                     $final_amount = $total_amount + $gst_amount;
+                 }
+
+                 if (
+                     $transaction_type == "bom_upload" ||
+                     $transaction_type == "add_edit_bom" ||
+                     $transaction_type == "release_qty" ||
+                     $transaction_type == "indent_request" ||
+                     $transaction_type == "purchase_order" ||
+                     $transaction_type == "vendor_proforma_invoice" ||
+                     $transaction_type == "delivery_challan" ||
+                     $transaction_type == "fore_close" ||
+                     $transaction_type == "good_received_notes" ||
+                     $transaction_type == "ppi_tax_invoice" ||
+                     $transaction_type == "debit_note" ||
+                     $transaction_type == "return_memo"
+                 ) {
+                     if (
+                         !in_array($member->bom_code, $unique_arr) ||
+                         (isset($member->type) && $member->type == "Merged") ||
+                         $transaction_type == "good_received_notes" ||
+                         $skip_unique
+                     ) {
+                         array_push($unique_arr, $member->bom_code);
+                         $data[] = [
+                             $i,
+                             $bom_code,
+                             $hsn_sac_code,
+                             $item_description,
+                             $make,
+                             $model,
+                             $unit,
+                             $qty_pending,
+                             $rate_basic,
+                             $gst,
+                             sprintf("%0.2f", $final_amount),
+                             $action_status,
+                         ];
+                     }
+                 }
+             }
+
+             $output = [
+                 "draw" => $_POST["draw"],
+                 "recordsTotal" => $allCount,
+                 "recordsFiltered" => $countFiltered,
+                 "data" => $data,
+             ];
+
+             echo json_encode($output);
+         }
+     }
+
+	- change below funtions in model
+
+		public function return_memo_data($po_number='',$type="",$project_id = 0)
+                                {
+                                  $this->db->select('dn.*,SUM(dn.total_amount) as total_amount,p.bp_code');
+                                  $this->db->from('tbl_debit_note_items as dn');
+                                  $this->db->join('tbl_projects as p', 'dn.project_id = p.project_id', 'left');
+                                  // $this->db->where('vdc.display', 'Y');
+                                  $this->db->where('dn.type', $type);
+                                  if(isset($po_number) && !empty($po_number)){
+                                    $this->db->where('dn.po_number', $po_number);
+                                  }
+                                  if(isset($project_id) && $project_id > 0){
+                                    $this->db->where('dn.project_id', $project_id);
+                                  }
+                                  $this->db->group_by("dn.vdc_number");
+
+                                  $query = $this->db->get();
+                                  return $query->result_array();
+                                } 
+        public function save_debit_note_item_data($data = array()) {
+                                  $this->db->insert_batch('tbl_debit_note_items', $data);
+                                  $insert_id = $this->db->insert_id();
+                                  return  $insert_id;
+                                }
+
+                                public function get_dc_details_item_for_debit_note($po_number) {
+                                  $this->db->select('vdc.po_number,vdc.vdc_number,i.*'); 
+                                  $this->db->from('tbl_vendor_delivery_challan as vdc');
+                                  $this->db->join('tbl_vendor_dc_item as i', 'vdc.vdc_id = i.vdc_id AND i.status = "approved"');
+                                  $this->db->where('vdc.po_number', $po_number);
+                                  // $this->db->where("vdc.type","NotMerged");
+                                  $query = $this->db->get();
+                                  return $query->result_array();
+                              }
+                               public function getViewDebitListRows($postData,$project_id,$transaction_id,$boq_code,$status_txt,$type){
+
+                                  $this->_get_bom_debit_list_datatables_query($postData,$project_id,$transaction_id,$boq_code,$status_txt,$type);
+                                  if($postData['length'] != -1){
+                                    $this->db->limit($postData['length'], $postData['start']);
+                                  }
+                                  $query = $this->db->get();
+                                
+                                  return $query->result();
+                                }
+                                public function _get_bom_debit_list_datatables_query($postData,$project_id,$transaction_id,$boq_code,$status_txt,$type){
+                                  $this->db->select('dn.*,SUM(dn.bad_condition_qty) as bad_condition_qty,SUM(dn.total_amount) as total_amount');
+                                  $this->db->from('tbl_debit_note_items as dn');
+                                  $this->db->where('dn.project_id',$project_id);
+                                  $this->db->where('dn.vdc_number',$transaction_id);
+                                  $this->db->where('dn.type',$type);
+                                  $this->db->group_by("bom_code");
+                                  $i = 0;
+                                  if(isset($postData['search']['value'])){
+                                    foreach($this->column_bom_search as $item){
+                                      if($postData['search']['value']){
+                                        if($i===0){
+                                          $this->db->group_start();
+                                          $this->db->like($item, trim($postData['search']['value']));
+                                        }else{
+                                          $this->db->or_like($item, trim($postData['search']['value']));
+                                        }
+                                        if(count($this->column_bom_search) - 1 == $i){
+                                          $this->db->group_end();
+                                        }
+                                      }
+                                      $i++;
+                                    }
+                                  }
+
+                              }
+                              public function countViewDebitiListAll($project_id,$transaction_id,$boq_code,$status_txt,$type){
+                                  $this->db->select('dn.*');
+                                  $this->db->from('tbl_debit_note_items as dn');
+                                  $this->db->where('dn.project_id',$project_id);
+                                  $this->db->where('dn.vdc_number',$transaction_id);
+                                  $this->db->group_by("dn.bom_code");
+                                  $this->db->where('dn.type',$type);
+                                  return $this->db->count_all_results();
+                              }
+
+        - new menu 
+        	INSERT INTO `tbl_submenu` (`submenu_id`, `menu_id`, `submenu_name`, `action`, `icon`, `display`) VALUES
+(205, 4, 'Debit Note', 'debit_note', 'fa fa-plus-circle', 'Y');
+        - new database table 
+
+        	tbl_debit_note_items
+
+
+        		-- phpMyAdmin SQL Dump
+				-- version 4.9.10
+				-- https://www.phpmyadmin.net/
+				--
+				-- Host: 127.0.0.1
+				-- Generation Time: Oct 17, 2024 at 10:57 AM
+				-- Server version: 8.0.39-0ubuntu0.20.04.1
+				-- PHP Version: 7.0.33-75+ubuntu20.04.1+deb.sury.org+1
+
+				SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+				SET AUTOCOMMIT = 0;
+				START TRANSACTION;
+				SET time_zone = "+00:00";
+
+
+				/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+				/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+				/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+				/*!40101 SET NAMES utf8mb4 */;
+
+				--
+				-- Database: `trackmrg_prudent_db_9`
+				--
+
+				-- --------------------------------------------------------
+
+				--
+				-- Table structure for table `tbl_debit_note_items`
+				--
+
+				CREATE TABLE `tbl_debit_note_items` (
+				  `debit_note_item_id` int NOT NULL,
+				  `vdc_id` int NOT NULL,
+				  `vdc_number` varchar(255) NOT NULL,
+				  `project_id` int NOT NULL,
+				  `vendor_category_id` int NOT NULL,
+				  `vendor_id` int NOT NULL,
+				  `work_order_on` varchar(255) NOT NULL,
+				  `po_number` varchar(255) NOT NULL,
+				  `vdc_item_id` int NOT NULL,
+				  `bom_code` varchar(255) NOT NULL,
+				  `boq_code` varchar(255) NOT NULL,
+				  `item_description` varchar(255) NOT NULL,
+				  `hsn_code` varchar(255) NOT NULL,
+				  `unit` varchar(255) NOT NULL,
+				  `bad_condition_qty` decimal(20,2) NOT NULL,
+				  `make` varchar(255) NOT NULL,
+				  `model` varchar(255) NOT NULL,
+				  `basic_rate` decimal(20,2) NOT NULL,
+				  `veriable_rate` decimal(20,2) NOT NULL,
+				  `gst` decimal(10,2) NOT NULL,
+				  `total_amount` decimal(20,2) NOT NULL,
+				  `type` enum('DebitNote','ReturnMemo') NOT NULL,
+				  `created_by` int NOT NULL,
+				  `created_on` datetime NOT NULL,
+				  `advance_payment` double(20,2) NOT NULL
+				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+				--
+				-- Indexes for dumped tables
+				--
+
+				--
+				-- Indexes for table `tbl_debit_note_items`
+				--
+				ALTER TABLE `tbl_debit_note_items`
+				  ADD PRIMARY KEY (`debit_note_item_id`);
+
+				--
+				-- AUTO_INCREMENT for dumped tables
+				--
+
+				--
+				-- AUTO_INCREMENT for table `tbl_debit_note_items`
+				--
+				ALTER TABLE `tbl_debit_note_items`
+				  MODIFY `debit_note_item_id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+				COMMIT;
+
+				/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+				/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+				/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+
